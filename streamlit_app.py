@@ -22,6 +22,7 @@ from perps_forecaster.eval.metrics import qlike, rmse, smape
 from perps_forecaster.features.engine import (build_features,
                                               create_regime_labels,
                                               get_feature_columns)
+from perps_forecaster.insights.analyzer import generate_regime_insights
 from perps_forecaster.models.point_vol import forecast_next_bar
 from perps_forecaster.models.regime import (predict_regime_proba,
                                             train_regime_classifier)
@@ -275,6 +276,90 @@ with col2:
     st.markdown("**Point & Volatility Forecast:**")
     st.metric("μ (mean return)", f"{mu_hat:.4%}")
     st.metric("σ (volatility)", f"{sigma_hat:.4%}")
+
+# Generate comprehensive insights
+predicted_regime = classes[last_proba[0].argmax()]
+regime_proba_dict = {cls: prob for cls, prob in zip(classes, last_proba[0])}
+
+insights = generate_regime_insights(
+    df=df,
+    predicted_regime=predicted_regime,
+    regime_proba=regime_proba_dict,
+    mu_forecast=mu_hat,
+    sigma_forecast=sigma_hat,
+    feature_cols=feature_cols,
+    y_test=y_test,
+    y_pred=y_pred_classes,
+)
+
+# Display insights in expandable sections
+st.markdown("---")
+st.subheader("💡 Insights & Decision Pathways")
+
+# Confidence Score
+confidence_color = "green" if insights.confidence_score > 70 else "orange" if insights.confidence_score > 40 else "red"
+st.markdown(f"### Confidence Score: :{confidence_color}[{insights.confidence_score:.0f}/100]")
+
+# Warnings (if any)
+if insights.warnings:
+    for warning in insights.warnings:
+        st.warning(warning)
+
+# Regime Interpretation
+with st.expander("🎯 Regime Interpretation", expanded=True):
+    st.markdown(insights.regime_description)
+    st.markdown(f"**Market Conditions:** {insights.market_conditions}")
+    st.markdown(f"**Risk Level:** {insights.risk_level}")
+
+# Trading Suggestions
+with st.expander("📋 Trading Suggestions", expanded=True):
+    st.markdown("**Suggested Actions:**")
+    for action in insights.suggested_actions:
+        st.markdown(f"- {action}")
+    
+    st.markdown("---")
+    st.markdown(f"**Position Sizing:** {insights.position_sizing}")
+
+# Feature Drivers
+with st.expander("🔍 What's Driving This Forecast?", expanded=False):
+    if insights.key_drivers:
+        st.markdown("**Key Market Drivers (by percentile):**")
+        driver_df = pd.DataFrame(insights.key_drivers, columns=["Feature", "Percentile"])
+        driver_df["Percentile"] = driver_df["Percentile"].apply(lambda x: f"{x:.0f}th")
+        st.dataframe(driver_df, hide_index=True, use_container_width=True)
+    
+    if insights.supporting_signals:
+        st.markdown("**Supporting Signals:**")
+        for signal in insights.supporting_signals:
+            st.markdown(f"✅ {signal}")
+    
+    if insights.contradicting_signals:
+        st.markdown("**Contradicting Signals:**")
+        for signal in insights.contradicting_signals:
+            st.markdown(f"❌ {signal}")
+
+# Historical Performance
+with st.expander("📊 Historical Model Performance", expanded=False):
+    if insights.historical_accuracy:
+        st.markdown("**Accuracy by Regime:**")
+        acc_df = pd.DataFrame(
+            [
+                {"Regime": regime, "Accuracy": f"{acc:.1%}"}
+                for regime, acc in insights.historical_accuracy.items()
+            ]
+        )
+        st.dataframe(acc_df, hide_index=True, use_container_width=True)
+    
+    if insights.regime_statistics.get("regime_distribution"):
+        st.markdown("**Regime Distribution (Historical):**")
+        regime_dist = insights.regime_statistics["regime_distribution"]
+        dist_df = pd.DataFrame(
+            [
+                {"Regime": regime, "Count": count, "Percentage": f"{count / sum(regime_dist.values()):.1%}"}
+                for regime, count in regime_dist.items()
+            ]
+        )
+        st.dataframe(dist_df, hide_index=True, use_container_width=True)
 
 # Diagnostics table
 st.subheader("🔍 Diagnostics: Last 10 Bars")
